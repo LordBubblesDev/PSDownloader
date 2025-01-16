@@ -78,7 +78,7 @@ function Start-Download {
         [Parameter()][switch]$NoProgress,
         [Parameter()][switch]$Quiet,
         [Parameter()][switch]$Force,
-        [Parameter()][int]$Threads = 1,
+        [Parameter()][int]$Threads = 0,
         [Parameter()][int]$MaxRetry = 3,
         [Parameter()][int]$Timeout = 30,
         [Parameter()][string]$ExpectedHash,
@@ -220,13 +220,13 @@ function Start-Download {
                     Format-FileSize -Size $contentLength
                 }
 
-                if ($contentLength -le 0) {
-                    Write-Verbose "Content length is invalid or not provided. Falling back to single-threaded download."
+                if (($contentLength -le 0) -and ($Threads -ne 0)) {
+                    Write-Verbose "Content length is invalid or not provided. Falling back to simple download."
                     $Threads = 0
                 }
 
-                if ($acceptRanges -ne "bytes") {
-                    Write-Verbose "Server does not support range requests. Falling back to single-threaded download."
+                if (($acceptRanges -ne "bytes") -and ($Threads -ne 0)) {
+                    Write-Verbose "Server does not support range requests. Falling back to simple download."
                     $Threads = 0
                 }
 
@@ -247,6 +247,8 @@ function Start-Download {
                     $request = [System.Net.HttpWebRequest]::Create($Url)
                     $request.UserAgent = $UserAgent
                     $request.Method = "GET"
+                    $request.Timeout = $Timeout * 1000
+                    $request.ReadWriteTimeout = $Timeout * 1000
                     
                     $response = $request.GetResponse()
                     $responseStream = $response.GetResponseStream()
@@ -289,6 +291,11 @@ function Start-Download {
                                     $lastBytes = $totalBytesRead
                                 }
                             }
+                        }
+                    }
+                    catch [System.Net.WebException] {
+                        if ($_.Status -eq [System.Net.WebExceptionStatus]::Timeout) {
+                            throw "Failed to download file. Timeout of $Timeout seconds exceeded."
                         }
                     }
                     finally {
@@ -601,7 +608,6 @@ function Start-Download {
                     $downloadTimer.Stop()
                 }
 
-                # Hash verification and verbose output moved outside both download methods
                 if ($ExpectedHash -or ($PSCmdlet.MyInvocation.BoundParameters["Verbose"].IsPresent)) {
                     if ($HashType -eq "CRC32") {
                         $allBytes = [System.IO.File]::ReadAllBytes($OutFile)
