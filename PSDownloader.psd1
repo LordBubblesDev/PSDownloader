@@ -96,17 +96,13 @@ FileList = @(
     'en-US\about_PSDownloader.help.txt'
 )
 
-# Add documentation property
-PackageReadmeFile = 'README.md'
-
-# Set licence acceptance requirement
-PackageRequireLicenseAcceptance = $false
-
 # Private data to pass to the module specified in RootModule/ModuleToProcess. This may also contain a PSData hashtable with additional module metadata used by PowerShell.
 PrivateData = @{
 
     #ReadmeUri of this module
     ReadmeUri = 'https://github.com/LordBubblesDev/PSDownloader/blob/main/README.md'
+
+    Readme = 'README.md'
 
     PSData = @{
 
@@ -118,6 +114,12 @@ PrivateData = @{
 
         # A URL to the main website for this project.
         ProjectUri = 'https://github.com/LordBubblesDev/PSDownloader'
+
+        # Add documentation property
+        PackageReadmeFile = 'README.md'
+
+        # Set licence acceptance requirement
+        PackageRequireLicenseAcceptance = $false
 
         # A URL to an icon representing this module.
         # IconUri = ''
