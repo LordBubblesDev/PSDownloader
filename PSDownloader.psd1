@@ -12,7 +12,7 @@
 RootModule = 'PSDownloader.psm1'
 
 # Version number of this module.
-ModuleVersion = '1.1.1'
+ModuleVersion = '1.1.2'
 
 # Supported PSEditions
 # CompatiblePSEditions = @()
@@ -22,10 +22,6 @@ GUID = '05862360-6d8e-4879-adf4-566e5f6029ac'
 
 # Author of this module
 Author = 'LordBubbles'
-
-# Company or vendor of this module
-
-CompanyName = 'LordBubbles'
 
 # Copyright statement for this module
 Copyright = '(c) 2025 LordBubbles. All rights reserved.'
@@ -99,21 +95,19 @@ FileList = @(
 # Private data to pass to the module specified in RootModule/ModuleToProcess. This may also contain a PSData hashtable with additional module metadata used by PowerShell.
 PrivateData = @{
 
-    #ReadmeUri of this module
-    ReadmeUri = 'https://github.com/LordBubblesDev/PSDownloader/blob/main/README.md'
-
-    Readme = 'README.md'
-
     PSData = @{
 
         # Tags applied to this module. These help with module discovery in online galleries.
         Tags = 'download','multithread','http','file-transfer','downloader','multi-thread','hash-verification','powershell'
 
-        # A URL to the license for this module.
-        License = 'MIT'
-
         # A URL to the main website for this project.
         ProjectUri = 'https://github.com/LordBubblesDev/PSDownloader'
+
+        #ReadmeUri of this module
+        ReadmeUri = 'https://github.com/LordBubblesDev/PSDownloader/blob/main/README.md'
+
+        # License of the module
+        LicenseUri = 'https://github.com/LordBubblesDev/PSDownloader/blob/main/LICENSE'
 
         # Add documentation property
         PackageReadmeFile = 'README.md'
@@ -126,6 +120,7 @@ PrivateData = @{
 
         # ReleaseNotes of this module
         ReleaseNotes = @"
+1.1.2 - Fixed some metadata issues.
 1.1.1 - Fixed issue with Win32Api not being available on systems without .NET 4.5 or later.
 1.1.0 - Added documentation for the module.
 1.0.9 - Fixed timeout setting not properly applied to simple download operations. Changed to unthreaded download by default.
@@ -140,6 +135,14 @@ PrivateData = @{
 1.0.0 - Initial release.
 "@
 
+        Files = @(
+            'PSDownloader.psm1',
+            'Public\Start-Download.ps1',
+            'LICENSE',
+            'README.md',
+            'en-US\about_PSDownloader.help.txt'
+        )
+
         # External dependent modules of this module
         # ExternalModuleDependencies = ''
 
@@ -148,7 +151,7 @@ PrivateData = @{
 } # End of PrivateData hashtable
 
 # HelpInfo URI of this module
-# HelpInfoURI = ''
+HelpInfoURI = 'https://github.com/LordBubblesDev/PSDownloader/blob/main/README.md'
 
 # Default prefix for commands exported from this module. Override the default prefix using Import-Module -Prefix.
 # DefaultCommandPrefix = ''
