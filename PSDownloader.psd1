@@ -12,7 +12,7 @@
 RootModule = 'PSDownloader.psm1'
 
 # Version number of this module.
-ModuleVersion = '1.0.4'
+ModuleVersion = '1.0.5'
 
 # Supported PSEditions
 # CompatiblePSEditions = @()
@@ -117,6 +117,7 @@ PrivateData = @{
 
         # ReleaseNotes of this module
         ReleaseNotes = @"
+1.0.5 - Added a workflow to automatically publish the module to the PowerShell Gallery.
 1.0.4 - Truly exclude .git folder from the module this time.
 1.0.3 - Failed attempt at excluding .git folder from the module.
 1.0.2 - Added support for CRC32 file integrity checks.

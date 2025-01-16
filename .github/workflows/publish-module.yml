@@ -1,0 +1,21 @@
+name: Publish PowerShell Module
+
+on:
+  push:
+    tags:
+      - '*'
+
+jobs:
+  publish-to-gallery:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Remove .git folder
+        run: rm -rf .git
+      - name: Publish to PowerShell Gallery
+        env:
+          NUGET_KEY: ${{ secrets.NUGET_KEY }}
+        shell: pwsh
+        run: |
+          # Publish the module to the PowerShell Gallery
+          Publish-Module -Path . -NuGetApiKey $env:NUGET_KEY -Verbose
