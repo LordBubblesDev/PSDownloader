@@ -271,14 +271,17 @@ function Start-Download {
                                     
                                     $downloadedSize = Format-FileSize -Size $totalBytesRead
                                     
-                                    $status = if ($contentLength -gt 0) {
-                                        "$downloadedSize of $totalSize ($([math]::Round($progress, 2))% Complete)"
-                                    } else {
-                                        "$downloadedSize downloaded"
-                                    }
-                                    $status += " - $([math]::Round($speed, 2)) MB/s"
+                                    $activity = "Downloading File: $fileName ($downloadedSize"
+                                    $activity += if ($contentLength -gt 0) { " of $totalSize" } else { " downloaded" }
+                                    $activity += ")"
                                     
-                                    Write-Progress -Activity "Downloading File: $fileName" `
+                                    $status = if ($contentLength -gt 0) {
+                                        "$([math]::Round($progress, 2))% Complete - $([math]::Round($speed, 2)) MB/s"
+                                    } else {
+                                        "$([math]::Round($speed, 2)) MB/s"
+                                    }
+                                    
+                                    Write-Progress -Activity $activity `
                                         -Status $status `
                                         -PercentComplete $progress
                                     

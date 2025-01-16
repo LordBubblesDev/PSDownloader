@@ -12,7 +12,7 @@
 RootModule = 'PSDownloader.psm1'
 
 # Version number of this module.
-ModuleVersion = '1.0.7'
+ModuleVersion = '1.0.8'
 
 # Supported PSEditions
 # CompatiblePSEditions = @()
@@ -117,6 +117,7 @@ PrivateData = @{
 
         # ReleaseNotes of this module
         ReleaseNotes = @"
+1.0.8 - More consistent progress report layout on the unthreaded download operation (can be called directly with '-Threads 0').
 1.0.7 - Improved simple download operations (unthreaded), and added total downloaded bytes to progress reporting.
 1.0.6 - Fixed issue with downloading files from servers that don't support range requests or do not provide a content length.
 1.0.5 - Added a workflow to automatically publish the module to the PowerShell Gallery.
