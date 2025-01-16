@@ -1,0 +1,53 @@
+TOPIC
+    about_PSDownloader
+
+SHORT DESCRIPTION
+    A PowerShell module for downloading files with multi-threaded support.
+
+LONG DESCRIPTION
+    PSDownloader is a PowerShell module that provides robust file downloading capabilities
+    with features like multi-threaded downloads, progress reporting, hash verification,
+    automatic retries, and pipeline support.
+
+    The module exports a single cmdlet:
+    - Start-Download: Downloads files from specified URLs
+
+FEATURES
+    * Multi-threaded downloads for improved speed
+    * Progress and speed reporting
+    * Hash verification (MD5, SHA1, SHA256, SHA384, SHA512, CRC32)
+    * Automatic retries on failure
+    * Pipeline support for batch downloads
+    * Multiple user agent options
+    * Segment retry on failure
+    * Cross-platform support
+
+EXAMPLES
+    Download a file:
+        Start-Download -Url "https://example.com/file.zip"
+
+    Multi-threaded download:
+        Start-Download -Url "https://example.com/file.zip" -Threads 8
+
+    Download with hash verification:
+        Start-Download -Url "https://example.com/file.zip" -ExpectedHash "1234ABCD" -HashType SHA256
+
+    Pipeline support:
+        Get-Content "urls.txt" | Start-Download -Destination "D:\Downloads"
+
+NOTE
+    The default behavior is unthreaded downloads. Multi-threaded downloads are
+    automatically disabled for servers that don't support range requests or don't
+    provide content length.
+
+TROUBLESHOOTING
+    If downloads fail:
+    1. Check your internet connection
+    2. Verify the URL is accessible
+    3. Try with different user agent settings
+    4. Try switching tomultiple threads or unthreaded mode
+    5. Increase timeout value for slow connections
+
+SEE ALSO
+    Online documentation: https://github.com/LordBubblesDev/PSDownloader
+    Get-Help Start-Download -Full 
