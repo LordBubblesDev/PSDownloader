@@ -35,9 +35,9 @@
     Expected file hash. If specified, verifies the downloaded file's hash matches.
     Will retry the download if verification fails.
 
-    Note: if processing multiple URLs through pipeline, hash verification will be disabled.
+    Warning: if processing multiple URLs through the pipeline operator, hash verification will be disabled after the first URL.
 .PARAMETER HashType
-    Type of hash to verify. Valid values: MD5, SHA1, SHA256, SHA384, SHA512.
+    Type of hash to verify. Valid values: MD5, SHA1, SHA256, SHA384, SHA512, CRC32.
     Defaults to MD5 if unspecified.
 .PARAMETER UserAgent
     User agent string for the HTTP request. Change if experiencing server restrictions.
@@ -82,7 +82,7 @@ function Start-Download {
         [Parameter()][int]$MaxRetry = 3,
         [Parameter()][int]$Timeout = 30,
         [Parameter()][string]$ExpectedHash,
-        [Parameter()][ValidateSet('MD5', 'SHA1', 'SHA256', 'SHA384', 'SHA512')][string]$HashType = 'MD5',
+        [Parameter()][ValidateSet('MD5', 'SHA1', 'SHA256', 'SHA384', 'SHA512', 'CRC32')][string]$HashType = 'MD5',
         [Parameter()][string]$UserAgent = 'Chrome'
     )
 
@@ -100,6 +100,16 @@ function Start-Download {
             'None' = $null
         }
 
+        if (($HashType -eq "CRC32") -and -not ([type]::GetType("Win32Api"))) {
+            $typeDefinition = "using System;`n" +
+                "using System.Runtime.InteropServices;`n" +
+                "public class Win32Api {`n" +
+                "    [DllImport(`"ntdll.dll`")]`n" +
+                "    public static extern uint RtlComputeCrc32(uint dwInitial, byte[] pData, int iLen);`n" +
+                "}"
+            Add-Type -TypeDefinition $typeDefinition.Trim() | Out-Null
+        }
+        
         if ($ExpectedHash) {
             $script:ExpectedHash = $ExpectedHash.ToUpper()
         }
@@ -511,9 +521,18 @@ function Start-Download {
                     Write-Progress -Activity "Downloading File" -Completed
                 }
 
+                if ($ExpectedHash -or ($PSCmdlet.MyInvocation.BoundParameters["Verbose"].IsPresent)) {
+                    if ($HashType -eq "CRC32") {
+                        $allBytes = [System.IO.File]::ReadAllBytes($OutFile)
+                        $crc32 = [Win32Api]::RtlComputeCrc32(0, $allBytes, $allBytes.Length)
+                        $actualHash = $crc32.ToString("X8")
+                    } else {
+                        $actualHash = (Get-FileHash -Path $OutFile -Algorithm $HashType).Hash
+                    }
+                }
+
                 if ($ExpectedHash) {
                     Write-Verbose "Verifying file hash..."
-                    $actualHash = (Get-FileHash -Path $OutFile -Algorithm $HashType).Hash
                     if ($actualHash -ne $ExpectedHash) {
                         Write-Warning "Hash verification failed! Expected: $ExpectedHash, Got: $actualHash"
                         $success = $false
@@ -546,7 +565,7 @@ function Start-Download {
                     Write-Output "Path: $OutFile"
                     Write-Output "Size: $totalSize"
                     Write-Output "Elapsed Time: $formattedTime"
-                    Write-Output "$($HashType): $($(Get-FileHash -Path $OutFile -Algorithm $HashType).Hash)`n"
+                    Write-Output "$($HashType): $actualHash`n"
                 }
                 else {
                     if (-not $Quiet) {
