@@ -87,6 +87,18 @@ function Start-Download {
     )
 
     begin {
+        function Format-FileSize {
+            param([long]$Size)
+            
+            switch ($Size) {
+                { $_ -gt 1TB } { "{0:n2} TB" -f ($_ / 1TB); Break }
+                { $_ -gt 1GB } { "{0:n2} GB" -f ($_ / 1GB); Break }
+                { $_ -gt 1MB } { "{0:n2} MB" -f ($_ / 1MB); Break }
+                { $_ -gt 1KB } { "{0:n2} KB" -f ($_ / 1KB); Break }
+                default { "{0} B " -f $_ }
+            }
+        }
+
         $userAgents = @{
             'Chrome' = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
             'Firefox' = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:123.0) Gecko/20100101 Firefox/123.0"
@@ -201,12 +213,20 @@ function Start-Download {
                 }
 
                 $contentLength = $response.ContentLength
+                $acceptRanges = $response.Headers["Accept-Ranges"]
                 $response.Close()
 
+                if (($contentLength -le 0) -and ($Threads -gt 1)) {
+                    Write-Verbose "Content length is invalid or not provided. Falling back to single-threaded download."
+                    $Threads = 1
+                }
+
+                if (($acceptRanges -ne "bytes") -and ($Threads -gt 1)) {
+                    Write-Verbose "Server does not support range requests. Falling back to single-threaded download."
+                    $Threads = 1
+                }
+
                 $downloadTimer = [System.Diagnostics.Stopwatch]::StartNew()
-                $segmentSize = [math]::Ceiling($contentLength / $Threads)
-                $tempDir = Join-Path $TempPath "DownloadSegments-$(New-Guid)"
-                $segmentSizes = @{}
 
                 if (Test-Path $OutFile) {
                     if ($Force) {
@@ -219,306 +239,340 @@ function Start-Download {
                     }
                 }
 
-                while (Test-Path $tempDir) {
+                if ($Threads -eq 1) {
+                    $request = [System.Net.HttpWebRequest]::Create($Url)
+                    $request.UserAgent = $UserAgent
+                    $response = $request.GetResponse()
+                    $stream = $response.GetResponseStream()
+                    $fileStream = [System.IO.File]::Create($OutFile)
+                    $buffer = New-Object byte[] $BUFFER_SIZE
+                    $totalBytesRead = 0
+                    $lastUpdate = 0
                     try {
-                        Write-Verbose "Cleaning up existing temp directory: $tempDir"
-                        Remove-Item -Path $tempDir -Recurse -Force -ErrorAction Stop
-                    }
-                    catch {
-                        Write-Warning "Failed to remove existing temp directory: $_"
-                        $tempDir = Join-Path $TempPath "DownloadSegments-$(New-Guid)"
-                    }
-                }
-                New-Item -ItemType Directory -Path $tempDir | Out-Null
-
-                $downloadSegment = {
-                    param(
-                        [string]$url,
-                        [string]$tempFile,
-                        [long]$start,
-                        [long]$end,
-                        [int]$bufferSize,
-                        [int]$timeout,
-                        [string]$userAgent
-                    )
-                    
-                    $request = [System.Net.HttpWebRequest]::Create($url)
-                    $request.AddRange($start, $end)
-                    $request.Timeout = $timeout * 1000
-                    $request.ReadWriteTimeout = $timeout * 1000
-                    $request.UserAgent = $userAgent
-                    $totalBytes = 0
-                    $expectedBytes = $end - $start + 1
-                    
-                    try {
-                        $response = $request.GetResponse()
-                        $stream = $response.GetResponseStream()
-                        $stream.ReadTimeout = $timeout * 1000
-                        $fileStream = [System.IO.File]::Create($tempFile)
-                        $buffer = New-Object byte[] $bufferSize
-                        
-                        while ($totalBytes -lt $expectedBytes) {
-                            $remaining = $expectedBytes - $totalBytes
-                            $toRead = [Math]::Min($buffer.Length, $remaining)
-                            $read = $stream.Read($buffer, 0, $toRead)
-                            
-                            if ($read -eq 0) { break }
-                            
-                            $fileStream.Write($buffer, 0, $read)
-                            $totalBytes += $read
-                            Write-Output @{ BytesRead = $totalBytes }
-                        }
-
-                        if ($totalBytes -ne $expectedBytes) {
-                            throw "Segment size mismatch: Expected $expectedBytes bytes, got $totalBytes bytes"
+                        while (($bytesRead = $stream.Read($buffer, 0, $buffer.Length)) -gt 0) {
+                            $fileStream.Write($buffer, 0, $bytesRead)
+                            $totalBytesRead += $bytesRead
+                            if (-not $NoProgress) {
+                                $progress = if ($contentLength -gt 0) { [Math]::Min(($totalBytesRead / $contentLength) * 100, 100) } else { 0 }
+                                $speed = ($totalBytesRead - $lastUpdate) / 0.5 # MB/s
+                                $lastUpdate = $totalBytesRead
+                                Write-Progress -Activity "Downloading File: $fileName" `
+                                            -Status "$([math]::Round($progress, 2))% Complete - $([math]::Round($speed / $MB, 2)) MB/s" `
+                                            -PercentComplete $progress
+                            }
+                            Start-Sleep -Milliseconds 500
                         }
                     }
                     finally {
-                        if ($fileStream) { $fileStream.Dispose() }
-                        if ($stream) { $stream.Dispose() }
-                        if ($response) { $response.Dispose() }
+                        $fileStream.Close()
+                        $stream.Close()
+                        $response.Close()
                     }
                 }
+                else {
+                    $segmentSize = [math]::Ceiling($contentLength / $Threads)
+                    $tempDir = Join-Path $TempPath "DownloadSegments-$(New-Guid)"
+                    $segmentSizes = @{}
 
-                $jobs = @()
-                $tempFiles = @()
-
-                for ($i = 0; $i -lt $Threads; $i++) {
-                    $start = $i * $segmentSize
-                    $end = [Math]::Min(($i + 1) * $segmentSize - 1, $contentLength - 1)
-                    $tempFile = Join-Path $tempDir "segment_$i"
-                    $tempFiles += $tempFile
-                    
-                    $segmentSizes[$i] = $end - $start + 1
-                    
-                    $job = Start-Job -ScriptBlock $downloadSegment -ArgumentList $Url, $tempFile, $start, $end, $BUFFER_SIZE, $Timeout, $UserAgent
-                    $jobs += $job
-                }
-
-                $fileName = [System.IO.Path]::GetFileName($OutFile)
-                $totalSize = switch ($contentLength) {
-                    { $_ -gt 1TB } { "{0:n2} TB" -f ($_ / 1TB); Break }
-                    { $_ -gt 1GB } { "{0:n2} GB" -f ($_ / 1GB); Break }
-                    { $_ -gt 1MB } { "{0:n2} MB" -f ($_ / 1MB); Break }
-                    { $_ -gt 1KB } { "{0:n2} KB" -f ($_ / 1KB); Break }
-                    default { "{0} B " -f $_ }
-                }
-
-                $lastUpdate = 0
-                $completedSegments = @{}
-                $lastProgressTime = [DateTime]::Now
-                $segmentLastProgress = @{}
-                $segmentRetries = @{}
-                $maxSegmentRetries = 3
-
-                function Restart-Segment {
-                    param(
-                        [int]$segmentIndex,
-                        [string]$reason
-                    )
-                    
-                    if (-not $segmentRetries.ContainsKey($segmentIndex)) {
-                        $segmentRetries[$segmentIndex] = 0
-                    }
-                    
-                    $segmentRetries[$segmentIndex]++
-                    if ($segmentRetries[$segmentIndex] -gt $maxSegmentRetries) {
-                        Write-Warning "Segment $segmentIndex failed after $maxSegmentRetries retries: $reason"
-                        throw "Download failed - segment $segmentIndex max retries exceeded"
-                    }
-                    
-                    Write-Verbose "Restarting segment $segmentIndex (attempt $($segmentRetries[$segmentIndex]) of $maxSegmentRetries): $reason"
-                    
-                    # Clean up old job
-                    $oldJob = $jobs[$segmentIndex]
-                    if ($oldJob) {
+                    while (Test-Path $tempDir) {
                         try {
-                            if ($oldJob.State -ne 'Completed') {
-                                $oldJob | Stop-Job -ErrorAction SilentlyContinue
-                            }
-                            $oldJob | Remove-Job -Force -ErrorAction SilentlyContinue
-                        } catch {
-                            Write-Warning "Failed to cleanup old job for segment $($segmentIndex): $_"
+                            Write-Verbose "Cleaning up existing temp directory: $tempDir"
+                            Remove-Item -Path $tempDir -Recurse -Force -ErrorAction Stop
+                        }
+                        catch {
+                            Write-Warning "Failed to remove existing temp directory: $_"
+                            $tempDir = Join-Path $TempPath "DownloadSegments-$(New-Guid)"
                         }
                     }
-                    
-                    # Calculate start and end positions
-                    $start = $segmentIndex * $segmentSize
-                    $end = [Math]::Min(($segmentIndex + 1) * $segmentSize - 1, $contentLength - 1)
-                    $tempFile = Join-Path $tempDir "segment_$segmentIndex"
-                    
-                    # Start new job
-                    $jobs[$segmentIndex] = Start-Job -ScriptBlock $downloadSegment -ArgumentList $Url, $tempFile, $start, $end, $BUFFER_SIZE, $Timeout, $UserAgent
-                    
-                    # Reset progress tracking
-                    $segmentLastProgress[$segmentIndex] = @{
-                        LastTime = [DateTime]::Now
-                        LastBytes = 0
-                        StuckCount = 0
-                    }
-                }
+                    New-Item -ItemType Directory -Path $tempDir | Out-Null
 
-                while ($true) {
-                    $totalBytesRead = 0
-                    $allComplete = $true
-                    $currentTime = [DateTime]::Now
-                    
-                    # Global timeout check - if no progress
-                    if (($currentTime - $lastProgressTime).TotalSeconds -gt $Timeout) {
-                        throw "Download timed out - no progress for $Timeout seconds"
+                    $downloadSegment = {
+                        param(
+                            [string]$url,
+                            [string]$tempFile,
+                            [long]$start,
+                            [long]$end,
+                            [int]$bufferSize,
+                            [int]$timeout,
+                            [string]$userAgent
+                        )
+                        
+                        $request = [System.Net.HttpWebRequest]::Create($url)
+                        $request.AddRange($start, $end)
+                        $request.Timeout = $timeout * 1000
+                        $request.ReadWriteTimeout = $timeout * 1000
+                        $request.UserAgent = $userAgent
+                        $totalBytes = 0
+                        $expectedBytes = $end - $start + 1
+                        
+                        try {
+                            $response = $request.GetResponse()
+                            $stream = $response.GetResponseStream()
+                            $stream.ReadTimeout = $timeout * 1000
+                            $fileStream = [System.IO.File]::Create($tempFile)
+                            $buffer = New-Object byte[] $bufferSize
+                            
+                            while ($totalBytes -lt $expectedBytes) {
+                                $remaining = $expectedBytes - $totalBytes
+                                $toRead = [Math]::Min($buffer.Length, $remaining)
+                                $read = $stream.Read($buffer, 0, $toRead)
+                                
+                                if ($read -eq 0) { break }
+                                
+                                $fileStream.Write($buffer, 0, $read)
+                                $totalBytes += $read
+                                Write-Output @{ BytesRead = $totalBytes }
+                            }
+
+                            if ($totalBytes -ne $expectedBytes) {
+                                throw "Segment size mismatch: Expected $expectedBytes bytes, got $totalBytes bytes"
+                            }
+                        }
+                        finally {
+                            if ($fileStream) { $fileStream.Dispose() }
+                            if ($stream) { $stream.Dispose() }
+                            if ($response) { $response.Dispose() }
+                        }
                     }
-                    
+
+                    $jobs = @()
+                    $tempFiles = @()
+
                     for ($i = 0; $i -lt $Threads; $i++) {
-                        if ($completedSegments[$i]) {
-                            $totalBytesRead += $segmentSizes[$i]
-                            continue
+                        $start = $i * $segmentSize
+                        $end = [Math]::Min(($i + 1) * $segmentSize - 1, $contentLength - 1)
+                        $tempFile = Join-Path $tempDir "segment_$i"
+                        $tempFiles += $tempFile
+                        
+                        $segmentSizes[$i] = $end - $start + 1
+                        
+                        $job = Start-Job -ScriptBlock $downloadSegment -ArgumentList $Url, $tempFile, $start, $end, $BUFFER_SIZE, $Timeout, $UserAgent
+                        $jobs += $job
+                    }
+
+                    $fileName = [System.IO.Path]::GetFileName($OutFile)
+                    $totalSize = if ($contentLength -gt 0) {
+                        Format-FileSize -Size $contentLength
+                    }
+
+                    $lastUpdate = 0
+                    $completedSegments = @{}
+                    $lastProgressTime = [DateTime]::Now
+                    $segmentLastProgress = @{}
+                    $segmentRetries = @{}
+                    $maxSegmentRetries = 3
+
+                    function Restart-Segment {
+                        param(
+                            [int]$segmentIndex,
+                            [string]$reason
+                        )
+                        
+                        if (-not $segmentRetries.ContainsKey($segmentIndex)) {
+                            $segmentRetries[$segmentIndex] = 0
                         }
                         
-                        $job = $jobs[$i]
-                        if (-not $job) {
-                            Restart-Segment -segmentIndex $i -reason "Job was lost"
-                            $allComplete = $false
-                            continue
+                        $segmentRetries[$segmentIndex]++
+                        if ($segmentRetries[$segmentIndex] -gt $maxSegmentRetries) {
+                            Write-Warning "Segment $segmentIndex failed after $maxSegmentRetries retries: $reason"
+                            throw "Download failed - segment $segmentIndex max retries exceeded"
                         }
                         
-                        # Initialize progress tracking for this segment if not exists
-                        if (-not $segmentLastProgress.ContainsKey($i)) {
-                            $segmentLastProgress[$i] = @{
-                                LastTime = $currentTime
-                                LastBytes = 0
-                                StuckCount = 0
+                        Write-Verbose "Restarting segment $segmentIndex (attempt $($segmentRetries[$segmentIndex]) of $maxSegmentRetries): $reason"
+                        
+                        # Clean up old job
+                        $oldJob = $jobs[$segmentIndex]
+                        if ($oldJob) {
+                            try {
+                                if ($oldJob.State -ne 'Completed') {
+                                    $oldJob | Stop-Job -ErrorAction SilentlyContinue
+                                }
+                                $oldJob | Remove-Job -Force -ErrorAction SilentlyContinue
+                            } catch {
+                                Write-Warning "Failed to cleanup old job for segment $($segmentIndex): $_"
                             }
                         }
                         
-                        if ($job.State -eq 'Failed') {
-                            $errorMsg = $job.ChildJobs[0].JobStateInfo.Reason.Message
-                            Restart-Segment -segmentIndex $i -reason $errorMsg
-                            $allComplete = $false
-                            continue
+                        # Calculate start and end positions
+                        $start = $segmentIndex * $segmentSize
+                        $end = [Math]::Min(($segmentIndex + 1) * $segmentSize - 1, $contentLength - 1)
+                        $tempFile = Join-Path $tempDir "segment_$segmentIndex"
+                        
+                        # Start new job
+                        $jobs[$segmentIndex] = Start-Job -ScriptBlock $downloadSegment -ArgumentList $Url, $tempFile, $start, $end, $BUFFER_SIZE, $Timeout, $UserAgent
+                        
+                        # Reset progress tracking
+                        $segmentLastProgress[$segmentIndex] = @{
+                            LastTime = [DateTime]::Now
+                            LastBytes = 0
+                            StuckCount = 0
+                        }
+                    }
+
+                    while ($true) {
+                        $totalBytesRead = 0
+                        $allComplete = $true
+                        $currentTime = [DateTime]::Now
+                        
+                        # Global timeout check - if no progress
+                        if (($currentTime - $lastProgressTime).TotalSeconds -gt $Timeout) {
+                            throw "Download timed out - no progress for $Timeout seconds"
                         }
                         
-                        # Handle completed jobs that might be stuck
-                        if ($job.State -eq 'Completed') {
-                            $data = Receive-Job -Job $job -Keep -ErrorAction Stop
-                            if (-not $data -or $data.Count -eq 0 -or ($data | Select-Object -Last 1).BytesRead -lt $segmentSizes[$i]) {
-                                Restart-Segment -segmentIndex $i -reason "Completed but did not finish downloading"
+                        for ($i = 0; $i -lt $Threads; $i++) {
+                            if ($completedSegments[$i]) {
+                                $totalBytesRead += $segmentSizes[$i]
+                                continue
+                            }
+                            
+                            $job = $jobs[$i]
+                            if (-not $job) {
+                                Restart-Segment -segmentIndex $i -reason "Job was lost"
+                                $allComplete = $false
+                                continue
+                            }
+                            
+                            # Initialize progress tracking for this segment if not exists
+                            if (-not $segmentLastProgress.ContainsKey($i)) {
+                                $segmentLastProgress[$i] = @{
+                                    LastTime = $currentTime
+                                    LastBytes = 0
+                                    StuckCount = 0
+                                }
+                            }
+                            
+                            if ($job.State -eq 'Failed') {
+                                $errorMsg = $job.ChildJobs[0].JobStateInfo.Reason.Message
+                                Restart-Segment -segmentIndex $i -reason $errorMsg
+                                $allComplete = $false
+                                continue
+                            }
+                            
+                            # Handle completed jobs that might be stuck
+                            if ($job.State -eq 'Completed') {
+                                $data = Receive-Job -Job $job -Keep -ErrorAction Stop
+                                if (-not $data -or $data.Count -eq 0 -or ($data | Select-Object -Last 1).BytesRead -lt $segmentSizes[$i]) {
+                                    Restart-Segment -segmentIndex $i -reason "Completed but did not finish downloading"
+                                    $allComplete = $false
+                                    continue
+                                }
+                            }
+                            
+                            try {
+                                $data = Receive-Job -Job $job -Keep -ErrorAction Stop
+                                if ($data -and $data.Count -gt 0) {
+                                    $lastBytes = ($data | Select-Object -Last 1).BytesRead
+                                    
+                                    # Check if this segment is making progress
+                                    if ($lastBytes -gt $segmentLastProgress[$i].LastBytes) {
+                                        $segmentLastProgress[$i].LastTime = $currentTime
+                                        $segmentLastProgress[$i].LastBytes = $lastBytes
+                                        $segmentLastProgress[$i].StuckCount = 0
+                                        $lastProgressTime = $currentTime
+                                    } else {
+                                        # Check if segment is stuck
+                                        $segmentStuckTime = ($currentTime - $segmentLastProgress[$i].LastTime).TotalSeconds
+                                        if ($segmentStuckTime -gt $Timeout) {
+                                            $segmentLastProgress[$i].StuckCount++
+                                            if ($segmentLastProgress[$i].StuckCount -gt 3) {
+                                                Restart-Segment -segmentIndex $i -reason "Stuck for too long"
+                                                $allComplete = $false
+                                                continue
+                                            }
+                                        }
+                                    }
+                                    
+                                    if ($lastBytes -ge $segmentSizes[$i]) {
+                                        $completedSegments[$i] = $true
+                                        $totalBytesRead += $segmentSizes[$i]
+                                        $segmentLastProgress.Remove($i)
+                                        try {
+                                            if ($job.State -ne 'Completed') {
+                                                $job | Stop-Job -ErrorAction SilentlyContinue
+                                            }
+                                            $job | Remove-Job -Force -ErrorAction SilentlyContinue
+                                            $jobs[$i] = $null
+                                        }
+                                        catch {
+                                            Write-Warning "Failed to cleanup completed job $($i): $_"
+                                        }
+                                    } else {
+                                        $allComplete = $false
+                                        $totalBytesRead += $lastBytes
+                                    }
+                                } else {
+                                    $allComplete = $false
+                                    
+                                    # Check if segment has been silent too long
+                                    $segmentStuckTime = ($currentTime - $segmentLastProgress[$i].LastTime).TotalSeconds
+                                    if ($segmentStuckTime -gt 10) {
+                                        $segmentLastProgress[$i].StuckCount++
+                                        if ($segmentLastProgress[$i].StuckCount -gt 3) {
+                                            Restart-Segment -segmentIndex $i -reason "No progress for too long"
+                                            continue
+                                        }
+                                    }
+                                }
+                            }
+                            catch {
+                                Restart-Segment -segmentIndex $i -reason "Error: $_"
                                 $allComplete = $false
                                 continue
                             }
                         }
                         
-                        try {
-                            $data = Receive-Job -Job $job -Keep -ErrorAction Stop
-                            if ($data -and $data.Count -gt 0) {
-                                $lastBytes = ($data | Select-Object -Last 1).BytesRead
-                                
-                                # Check if this segment is making progress
-                                if ($lastBytes -gt $segmentLastProgress[$i].LastBytes) {
-                                    $segmentLastProgress[$i].LastTime = $currentTime
-                                    $segmentLastProgress[$i].LastBytes = $lastBytes
-                                    $segmentLastProgress[$i].StuckCount = 0
-                                    $lastProgressTime = $currentTime
-                                } else {
-                                    # Check if segment is stuck
-                                    $segmentStuckTime = ($currentTime - $segmentLastProgress[$i].LastTime).TotalSeconds
-                                    if ($segmentStuckTime -gt $Timeout) {
-                                        $segmentLastProgress[$i].StuckCount++
-                                        if ($segmentLastProgress[$i].StuckCount -gt 3) {
-                                            Restart-Segment -segmentIndex $i -reason "Stuck for too long"
-                                            $allComplete = $false
-                                            continue
-                                        }
-                                    }
-                                }
-                                
-                                if ($lastBytes -ge $segmentSizes[$i]) {
-                                    $completedSegments[$i] = $true
-                                    $totalBytesRead += $segmentSizes[$i]
-                                    $segmentLastProgress.Remove($i)
-                                    try {
-                                        if ($job.State -ne 'Completed') {
-                                            $job | Stop-Job -ErrorAction SilentlyContinue
-                                        }
-                                        $job | Remove-Job -Force -ErrorAction SilentlyContinue
-                                        $jobs[$i] = $null
-                                    }
-                                    catch {
-                                        Write-Warning "Failed to cleanup completed job $($i): $_"
-                                    }
-                                } else {
-                                    $allComplete = $false
-                                    $totalBytesRead += $lastBytes
-                                }
-                            } else {
-                                $allComplete = $false
-                                
-                                # Check if segment has been silent too long
-                                $segmentStuckTime = ($currentTime - $segmentLastProgress[$i].LastTime).TotalSeconds
-                                if ($segmentStuckTime -gt 10) {
-                                    $segmentLastProgress[$i].StuckCount++
-                                    if ($segmentLastProgress[$i].StuckCount -gt 3) {
-                                        Restart-Segment -segmentIndex $i -reason "No progress for too long"
-                                        continue
-                                    }
-                                }
-                            }
-                        }
-                        catch {
-                            Restart-Segment -segmentIndex $i -reason "Error: $_"
-                            $allComplete = $false
-                            continue
-                        }
-                    }
-                    
-                    if ($allComplete) { break }
-                    
-                    if (-not $NoProgress) {
-                        $progress = [Math]::Min(($totalBytesRead / $contentLength) * 100, 100)
-                        $speed = ($totalBytesRead - $lastUpdate) / 0.5 # MB/s
-                        $lastUpdate = $totalBytesRead
+                        if ($allComplete) { break }
                         
-                        Write-Progress -Activity "Downloading File: $fileName ($totalSize)" `
-                                      -Status "$([math]::Round($progress, 2))% Complete - $([math]::Round($speed / $MB, 2)) MB/s" `
-                                      -PercentComplete $progress
-                    }
-                    
-                    Start-Sleep -Milliseconds 500
-                }
-
-                $finalFile = [System.IO.File]::Create($OutFile)
-                try {
-                    for ($i = 0; $i -lt $Threads; $i++) {
                         if (-not $NoProgress) {
-                            Write-Progress -Activity "Merging segments: $fileName" `
-                                          -Status "Processing segment $($i + 1) of $Threads" `
-                                          -PercentComplete (($i / $Threads) * 100)
+                            $progress = [Math]::Min(($totalBytesRead / $contentLength) * 100, 100)
+                            $speed = ($totalBytesRead - $lastUpdate) / 0.5 # MB/s
+                            $lastUpdate = $totalBytesRead
+                            
+                            Write-Progress -Activity "Downloading File: $fileName ($totalSize)" `
+                                          -Status "$([math]::Round($progress, 2))% Complete - $([math]::Round($speed / $MB, 2)) MB/s" `
+                                          -PercentComplete $progress
                         }
                         
-                        $tempFile = Join-Path $tempDir "segment_$i"
-                        $expectedSize = $segmentSizes[$i]
-                        
-                        if (-not (Test-Path $tempFile)) {
-                            throw "Missing segment file: $tempFile"
-                        }
-                        
-                        $bytes = [System.IO.File]::ReadAllBytes($tempFile)
-                        if ($bytes.Length -eq 0) {
-                            throw "Empty segment file: $tempFile"
-                        }
-                        if ($bytes.Length -ne $expectedSize) {
-                            throw "Segment size mismatch: Expected $expectedSize, got $($bytes.Length)"
-                        }
-                        
-                        $finalFile.Write($bytes, 0, $bytes.Length)
+                        Start-Sleep -Milliseconds 500
                     }
-                }
-                finally {
-                    $finalFile.Close()
-                    Remove-Item -Path $tempDir -Recurse -Force -ErrorAction SilentlyContinue
-                }
 
-                if (-not $NoProgress) {
-                    Write-Progress -Activity "Downloading File" -Completed
+                    $finalFile = [System.IO.File]::Create($OutFile)
+                    try {
+                        for ($i = 0; $i -lt $Threads; $i++) {
+                            if (-not $NoProgress) {
+                                Write-Progress -Activity "Merging segments: $fileName" `
+                                              -Status "Processing segment $($i + 1) of $Threads" `
+                                              -PercentComplete (($i / $Threads) * 100)
+                            }
+                            
+                            $tempFile = Join-Path $tempDir "segment_$i"
+                            $expectedSize = $segmentSizes[$i]
+                            
+                            if (-not (Test-Path $tempFile)) {
+                                throw "Missing segment file: $tempFile"
+                            }
+                            
+                            $bytes = [System.IO.File]::ReadAllBytes($tempFile)
+                            if ($bytes.Length -eq 0) {
+                                throw "Empty segment file: $tempFile"
+                            }
+                            if ($bytes.Length -ne $expectedSize) {
+                                throw "Segment size mismatch: Expected $expectedSize, got $($bytes.Length)"
+                            }
+                            
+                            $finalFile.Write($bytes, 0, $bytes.Length)
+                        }
+                    }
+                    finally {
+                        $finalFile.Close()
+                        Remove-Item -Path $tempDir -Recurse -Force -ErrorAction SilentlyContinue
+                    }
+
+                    if (-not $NoProgress) {
+                        Write-Progress -Activity "Downloading File" -Completed
+                    }
+
+                    $downloadTimer.Stop()
                 }
 
                 if ($ExpectedHash -or ($PSCmdlet.MyInvocation.BoundParameters["Verbose"].IsPresent)) {
@@ -541,8 +595,6 @@ function Start-Download {
                     Write-Verbose "Hash verification successful"
                 }
 
-                $downloadTimer.Stop()
-
                 if ($PSCmdlet.MyInvocation.BoundParameters["Verbose"].IsPresent) {
                     Write-Output "`nFile downloaded successfully."
                     $elapsed = $downloadTimer.Elapsed
@@ -563,7 +615,7 @@ function Start-Download {
                     }
                     
                     Write-Output "Path: $OutFile"
-                    Write-Output "Size: $totalSize"
+                    Write-Output "Size: $(Format-FileSize -Size ((Get-Item $OutFile).Length))"
                     Write-Output "Elapsed Time: $formattedTime"
                     Write-Output "$($HashType): $actualHash`n"
                 }
