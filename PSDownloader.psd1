@@ -12,7 +12,7 @@
 RootModule = 'PSDownloader.psm1'
 
 # Version number of this module.
-ModuleVersion = '1.0.3'
+ModuleVersion = '1.0.4'
 
 # Supported PSEditions
 # CompatiblePSEditions = @()
@@ -115,7 +115,7 @@ PrivateData = @{
         # IconUri = ''
 
         # ReleaseNotes of this module
-        ReleaseNotes = 'Removed .git folder from the module.'
+        ReleaseNotes = 'Truly exclude .git folder from the module this time.'
 
         # External dependent modules of this module
         # ExternalModuleDependencies = ''
