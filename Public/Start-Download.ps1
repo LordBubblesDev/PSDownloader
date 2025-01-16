@@ -55,16 +55,12 @@
     - Or provide your own custom user agent string
 .EXAMPLE
     Start-Download -Url "https://example.com/file.zip"
-
 .EXAMPLE
     Start-Download -Url "https://example.com/file.zip" -Destination "C:\Downloads" -Threads 8
-
 .EXAMPLE
     Start-Download -Url "https://example.com/file.zip" -ExpectedHash "1234ABCD..." -HashType SHA256
-
 .EXAMPLE
     Start-Download -Url "https://example.com/file.zip" -Destination "D:\Data" -Quiet -Force
-
 .EXAMPLE
     Start-Download -Url "https://example.com/file.zip" -TempDir "E:\Temp" -MaxRetry 5
 #>
