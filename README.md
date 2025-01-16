@@ -62,7 +62,7 @@ Get-Content "urls.txt" | Start-Download -Destination "D:\Downloads"
 - `MaxRetry`: Maximum retry attempts (default: 3)
 - `Timeout`: Connection timeout in seconds (default: 30)
 - `ExpectedHash`: Expected file hash for verification
-- `HashType`: Hash algorithm (MD5, SHA1, SHA256, SHA384, SHA512)
+- `HashType`: Hash algorithm (MD5, SHA1, SHA256, SHA384, SHA512, CRC32)
 - `UserAgent`: User agent string or preset name
 
 ## User Agent Presets
