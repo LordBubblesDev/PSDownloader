@@ -216,14 +216,18 @@ function Start-Download {
                 $acceptRanges = $response.Headers["Accept-Ranges"]
                 $response.Close()
 
-                if (($contentLength -le 0) -and ($Threads -gt 1)) {
-                    Write-Verbose "Content length is invalid or not provided. Falling back to single-threaded download."
-                    $Threads = 1
+                $totalSize = if ($contentLength -gt 0) {
+                    Format-FileSize -Size $contentLength
                 }
 
-                if (($acceptRanges -ne "bytes") -and ($Threads -gt 1)) {
+                if ($contentLength -le 0) {
+                    Write-Verbose "Content length is invalid or not provided. Falling back to single-threaded download."
+                    $Threads = 0
+                }
+
+                if ($acceptRanges -ne "bytes") {
                     Write-Verbose "Server does not support range requests. Falling back to single-threaded download."
-                    $Threads = 1
+                    $Threads = 0
                 }
 
                 $downloadTimer = [System.Diagnostics.Stopwatch]::StartNew()
@@ -239,33 +243,54 @@ function Start-Download {
                     }
                 }
 
-                if ($Threads -eq 1) {
+                if ($Threads -eq 0) {
                     $request = [System.Net.HttpWebRequest]::Create($Url)
                     $request.UserAgent = $UserAgent
+                    $request.Method = "GET"
+                    
                     $response = $request.GetResponse()
-                    $stream = $response.GetResponseStream()
+                    $responseStream = $response.GetResponseStream()
                     $fileStream = [System.IO.File]::Create($OutFile)
-                    $buffer = New-Object byte[] $BUFFER_SIZE
+                    
+                    $bufferSize = 8192
+                    $buffer = New-Object byte[] $bufferSize
                     $totalBytesRead = 0
-                    $lastUpdate = 0
+                    $lastUpdate = [DateTime]::Now
+                    $lastBytes = 0
+                    
                     try {
-                        while (($bytesRead = $stream.Read($buffer, 0, $buffer.Length)) -gt 0) {
+                        while (($bytesRead = $responseStream.Read($buffer, 0, $buffer.Length)) -gt 0) {
                             $fileStream.Write($buffer, 0, $bytesRead)
                             $totalBytesRead += $bytesRead
+                            
                             if (-not $NoProgress) {
-                                $progress = if ($contentLength -gt 0) { [Math]::Min(($totalBytesRead / $contentLength) * 100, 100) } else { 0 }
-                                $speed = ($totalBytesRead - $lastUpdate) / 0.5 # MB/s
-                                $lastUpdate = $totalBytesRead
-                                Write-Progress -Activity "Downloading File: $fileName" `
-                                            -Status "$([math]::Round($progress, 2))% Complete - $([math]::Round($speed / $MB, 2)) MB/s" `
-                                            -PercentComplete $progress
+                                $now = [DateTime]::Now
+                                if (($now - $lastUpdate).TotalMilliseconds -ge 100) {
+                                    $progress = if ($contentLength -gt 0) { ($totalBytesRead / $contentLength) * 100 } else { -1 }
+                                    $speed = ($totalBytesRead - $lastBytes) / ($now - $lastUpdate).TotalSeconds / 1MB
+                                    
+                                    $downloadedSize = Format-FileSize -Size $totalBytesRead
+                                    
+                                    $status = if ($contentLength -gt 0) {
+                                        "$downloadedSize of $totalSize ($([math]::Round($progress, 2))% Complete)"
+                                    } else {
+                                        "$downloadedSize downloaded"
+                                    }
+                                    $status += " - $([math]::Round($speed, 2)) MB/s"
+                                    
+                                    Write-Progress -Activity "Downloading File: $fileName" `
+                                        -Status $status `
+                                        -PercentComplete $progress
+                                    
+                                    $lastUpdate = $now
+                                    $lastBytes = $totalBytesRead
+                                }
                             }
-                            Start-Sleep -Milliseconds 500
                         }
                     }
                     finally {
                         $fileStream.Close()
-                        $stream.Close()
+                        $responseStream.Close()
                         $response.Close()
                     }
                 }
@@ -351,9 +376,6 @@ function Start-Download {
                     }
 
                     $fileName = [System.IO.Path]::GetFileName($OutFile)
-                    $totalSize = if ($contentLength -gt 0) {
-                        Format-FileSize -Size $contentLength
-                    }
 
                     $lastUpdate = 0
                     $completedSegments = @{}
@@ -527,8 +549,9 @@ function Start-Download {
                             $progress = [Math]::Min(($totalBytesRead / $contentLength) * 100, 100)
                             $speed = ($totalBytesRead - $lastUpdate) / 0.5 # MB/s
                             $lastUpdate = $totalBytesRead
+                            $downloadedSize = Format-FileSize -Size $totalBytesRead
                             
-                            Write-Progress -Activity "Downloading File: $fileName ($totalSize)" `
+                            Write-Progress -Activity "Downloading File: $fileName ($downloadedSize of $totalSize)" `
                                           -Status "$([math]::Round($progress, 2))% Complete - $([math]::Round($speed / $MB, 2)) MB/s" `
                                           -PercentComplete $progress
                         }
@@ -575,6 +598,7 @@ function Start-Download {
                     $downloadTimer.Stop()
                 }
 
+                # Hash verification and verbose output moved outside both download methods
                 if ($ExpectedHash -or ($PSCmdlet.MyInvocation.BoundParameters["Verbose"].IsPresent)) {
                     if ($HashType -eq "CRC32") {
                         $allBytes = [System.IO.File]::ReadAllBytes($OutFile)
