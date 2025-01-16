@@ -14,7 +14,7 @@ RootModule = 'PSDownloader.psm1'
 # Version number of this module.
 ModuleVersion = '1.1.2'
 
-# Supported PSEditions
+# Supported PSEditions 
 # CompatiblePSEditions = @()
 
 # ID used to uniquely identify this module
