@@ -24,6 +24,7 @@ GUID = '05862360-6d8e-4879-adf4-566e5f6029ac'
 Author = 'LordBubbles'
 
 # Company or vendor of this module
+
 CompanyName = 'LordBubbles'
 
 # Copyright statement for this module
@@ -115,7 +116,13 @@ PrivateData = @{
         # IconUri = ''
 
         # ReleaseNotes of this module
-        ReleaseNotes = 'Truly exclude .git folder from the module this time.'
+        ReleaseNotes = @"
+1.0.4 - Truly exclude .git folder from the module this time.
+1.0.3 - Failed attempt at excluding .git folder from the module.
+1.0.2 - Added support for CRC32 file integrity checks.
+1.0.1 - Reupload of initial release with documentation.
+1.0.0 - Initial release.
+"@
 
         # External dependent modules of this module
         # ExternalModuleDependencies = ''
