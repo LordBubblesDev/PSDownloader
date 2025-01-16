@@ -109,17 +109,24 @@ function Start-Download {
         }
 
         if (($HashType -eq "CRC32") -and -not ([type]::GetType("Win32Api"))) {
-            $typeDefinition = "using System;`n" +
-                "using System.Runtime.InteropServices;`n" +
-                "public class Win32Api {`n" +
-                "    [DllImport(`"ntdll.dll`")]`n" +
-                "    public static extern uint RtlComputeCrc32(uint dwInitial, byte[] pData, int iLen);`n" +
-                "}"
-            Add-Type -TypeDefinition $typeDefinition.Trim() | Out-Null
+            try {
+                $typeDefinition = "using System;`n" +
+                    "using System.Runtime.InteropServices;`n" +
+                    "public class Win32Api {`n" +
+                    "    [DllImport(`"ntdll.dll`")]`n" +
+                    "    public static extern uint RtlComputeCrc32(uint dwInitial, byte[] pData, int iLen);`n" +
+                    "}"
+                Add-Type -TypeDefinition $typeDefinition.Trim() | Out-Null
+            }
+            catch {
+                Write-Warning "Failed to load Win32Api. CRC32 hash verification will be disabled."
+                $HashType = 'MD5'
+                $ExpectedHash = $null
+            }
         }
         
         if ($ExpectedHash) {
-            $script:ExpectedHash = $ExpectedHash.ToUpper()
+            $ExpectedHash = $ExpectedHash.ToUpper()
         }
         
         # If UserAgent is a preset name, use the corresponding string

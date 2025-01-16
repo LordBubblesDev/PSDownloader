@@ -12,7 +12,7 @@
 RootModule = 'PSDownloader.psm1'
 
 # Version number of this module.
-ModuleVersion = '1.1.0'
+ModuleVersion = '1.1.1'
 
 # Supported PSEditions
 # CompatiblePSEditions = @()
@@ -96,6 +96,12 @@ FileList = @(
     'en-US\about_PSDownloader.help.txt'
 )
 
+# Add documentation property
+PackageReadmeFile = 'README.md'
+
+# Set licence acceptance requirement
+PackageRequireLicenseAcceptance = $false
+
 # Private data to pass to the module specified in RootModule/ModuleToProcess. This may also contain a PSData hashtable with additional module metadata used by PowerShell.
 PrivateData = @{
 
@@ -108,7 +114,6 @@ PrivateData = @{
         Tags = 'download','multithread','http','file-transfer','downloader','multi-thread','hash-verification','powershell'
 
         # A URL to the license for this module.
-        LicenseUri = 'https://github.com/LordBubblesDev/PSDownloader/blob/main/LICENSE'
         License = 'MIT'
 
         # A URL to the main website for this project.
@@ -119,6 +124,7 @@ PrivateData = @{
 
         # ReleaseNotes of this module
         ReleaseNotes = @"
+1.1.1 - Fixed issue with Win32Api not being available on systems without .NET 4.5 or later.
 1.1.0 - Added documentation for the module.
 1.0.9 - Fixed timeout setting not properly applied to simple download operations. Changed to unthreaded download by default.
 1.0.8 - More consistent progress report layout on the unthreaded download operation (can be called directly with '-Threads 0').
@@ -134,9 +140,6 @@ PrivateData = @{
 
         # External dependent modules of this module
         # ExternalModuleDependencies = ''
-
-        # Add PackageReadmeFile property
-        PackageReadmeFile = 'README.md'
 
     } # End of PSData hashtable
     

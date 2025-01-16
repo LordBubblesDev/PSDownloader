@@ -45,7 +45,7 @@ TROUBLESHOOTING
     1. Check your internet connection
     2. Verify the URL is accessible
     3. Try with different user agent settings
-    4. Try switching tomultiple threads or unthreaded mode
+    4. Try switching to multiple threads or unthreaded mode
     5. Increase timeout value for slow connections
 
 SEE ALSO
