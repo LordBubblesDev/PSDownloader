@@ -2,7 +2,7 @@
 
 A PowerShell module for downloading files with multi-threaded support. Features include progress reporting, hash verification, automatic retries, pipeline support, and multiple user agent options.
 
-# Features
+## Features
 
 - Multi-threaded downloads
 - Progress/speed reporting
@@ -12,7 +12,7 @@ A PowerShell module for downloading files with multi-threaded support. Features 
 - Multiple user agent options
 - Segment retry on failure
 
-# Installation
+## Installation
 
 1. Install the module
 ```powershell
@@ -23,27 +23,27 @@ Install-Module -Name PSDownloader
 Import-Module PSDownloader
 ```
 
-# Usage
+## Usage
 
-## Basic Download
+### Basic Download
 
 ```powershell
 Start-Download -Url "https://example.com/file.zip"
 ```
 
-## Multi-threaded Download
+### Multi-threaded Download
 
 ```powershell
 Start-Download -Url "https://example.com/file.zip" -Threads 8
 ```
 
-## Download with Hash Verification
+### Download with Hash Verification
 
 ```powershell
 Start-Download -Url "https://example.com/file.zip" -ExpectedHash "1234ABCD" -HashType SHA256
 ```
 
-## Pipeline Support
+### Pipeline Support
 
 ```powershell
 # Download multiple files
@@ -65,7 +65,7 @@ Get-Content "urls.txt" | Start-Download -Destination "D:\Downloads"
 - `HashType`: Hash algorithm (MD5, SHA1, SHA256, SHA384, SHA512, CRC32)
 - `UserAgent`: User agent string or preset name
 
-## User Agent Presets
+### User Agent Presets
 
 - 'Chrome' (default)
 - 'Firefox'
@@ -78,7 +78,7 @@ Get-Content "urls.txt" | Start-Download -Destination "D:\Downloads"
 - 'PS'
 - 'None'
 
-# Advanced Usage
+## Advanced Usage
 
 For more detailed help, run the command below
 ```powershell
